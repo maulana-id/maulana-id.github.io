@@ -902,10 +902,23 @@
 					top: var(--header-height);
 					display: block;
 					height: calc(100svh - var(--header-height));
+					isolation: isolate;
 					overflow: hidden;
 				}
 
+				.presentation-stage > .project-signal {
+					position: absolute;
+					z-index: 0;
+					inset: 0;
+					display: block;
+					width: 100%;
+					height: 100%;
+					pointer-events: none;
+				}
+
 				.presentation-track {
+					position: relative;
+					z-index: 1;
 					display: flex;
 					width: 300%;
 					height: 100%;
@@ -935,24 +948,35 @@
 					padding-block: clamp(28px, 4vh, 54px);
 				}
 
-				.project-signal {
-					position: absolute;
-					z-index: -1;
-					inset: 0;
-					display: block;
-					width: 100%;
-					height: 100%;
-					pointer-events: none;
-				}
-
 				#projects .section-heading {
 					align-items: center;
 					margin-bottom: clamp(22px, 3vh, 36px);
 				}
 
 				#projects .project-grid {
+					flex: 0 1 auto;
+					min-height: 0;
+					max-height: calc(100% - 150px);
+					align-content: start;
+					grid-auto-rows: max-content;
+					overflow-y: auto;
+					scrollbar-color: var(--ember) var(--surface);
+					scrollbar-width: thin;
 					grid-template-columns: repeat(4, minmax(0, 1fr));
 					gap: 12px;
+				}
+
+				#projects .project-grid::-webkit-scrollbar {
+					width: 8px;
+				}
+
+				#projects .project-grid::-webkit-scrollbar-track {
+					background: var(--surface);
+				}
+
+				#projects .project-grid::-webkit-scrollbar-thumb {
+					border: 2px solid var(--surface);
+					background: var(--ember);
 				}
 
 				#projects .project-art {
@@ -1584,9 +1608,9 @@
 
 			<div class="presentation" id="presentation">
 				<div class="presentation-stage">
+					<canvas class="project-signal" id="project-signal" aria-hidden="true"></canvas>
 					<div class="presentation-track" id="presentation-track">
 						<section class="shell section deck-panel" id="projects" data-panel="0" aria-labelledby="projects-title">
-							<canvas class="project-signal" id="project-signal" aria-hidden="true"></canvas>
 							<div class="section-heading">
 								<div>
 									<span class="section-index">01 / THE WORK</span>
@@ -1661,10 +1685,12 @@
 			const deckCurrent = document.querySelector("#deck-current");
 			const desktopDeck = window.matchMedia("(min-width: 900px) and (prefers-reduced-motion: no-preference)");
 			let deckFrame = 0;
+			let deckInRange = false;
 
 			function updateDeck() {
 				deckFrame = 0;
 				if (!desktopDeck.matches) {
+					deckInRange = false;
 					panels.forEach((panel) => {
 						panel.inert = false;
 						panel.classList.remove("is-active");
@@ -1677,6 +1703,7 @@
 				document.documentElement.style.setProperty("--header-height", `${headerHeight}px`);
 				const start = presentation.offsetTop - headerHeight;
 				const distance = presentation.offsetHeight - presentationStage.offsetHeight;
+				deckInRange = window.scrollY >= start && window.scrollY <= start + distance;
 				const progress = Math.max(0, Math.min(1, (window.scrollY - start) / distance));
 				const activeIndex = Math.min(panels.length - 1, Math.floor(progress * panels.length));
 				presentationTrack.style.setProperty("--deck-offset", `${progress * 66.666667}%`);
@@ -1718,8 +1745,8 @@
 
 			requestDeckUpdate();
 
-			const projectPanel = document.querySelector("#projects");
 			const signalCanvas = document.querySelector("#project-signal");
+			const signalStage = document.querySelector(".presentation-stage");
 			const signalContext = signalCanvas.getContext("2d");
 			const signalPointer = { x: 0.5, y: 0.5, targetX: 0.5, targetY: 0.5, active: false };
 			let signalFrame = 0;
@@ -1827,7 +1854,7 @@
 
 			function animateSignal(time) {
 				signalFrame = 0;
-				if (!desktopDeck.matches || document.hidden || !panels[0].classList.contains("is-active")) return;
+				if (!desktopDeck.matches || document.hidden || !deckInRange) return;
 				signalPointer.x += (signalPointer.targetX - signalPointer.x) * 0.09;
 				signalPointer.y += (signalPointer.targetY - signalPointer.y) * 0.09;
 				drawSignal(time);
@@ -1835,7 +1862,7 @@
 			}
 
 			function updateSignalLoop() {
-				const shouldAnimate = desktopDeck.matches && !document.hidden && panels[0].classList.contains("is-active");
+				const shouldAnimate = desktopDeck.matches && !document.hidden && deckInRange;
 				if (!shouldAnimate) {
 					if (signalFrame) window.cancelAnimationFrame(signalFrame);
 					signalFrame = 0;
@@ -1845,15 +1872,15 @@
 				if (!signalFrame) signalFrame = window.requestAnimationFrame(animateSignal);
 			}
 
-			projectPanel.addEventListener("pointermove", (event) => {
-				const bounds = projectPanel.getBoundingClientRect();
+			signalStage.addEventListener("pointermove", (event) => {
+				const bounds = signalStage.getBoundingClientRect();
 				signalPointer.targetX = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
 				signalPointer.targetY = Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height));
 				signalPointer.active = true;
 				updateSignalLoop();
 			});
 
-			projectPanel.addEventListener("pointerleave", () => {
+			signalStage.addEventListener("pointerleave", () => {
 				signalPointer.active = false;
 			});
 
@@ -1868,7 +1895,7 @@
 			function makeProjectCard(repository, index) {
 				const card = document.createElement("article");
 				card.className = "project-card";
-				card.style.setProperty("--card-index", index);
+				card.style.setProperty("--card-index", Math.min(index, 5));
 
 				const artLink = document.createElement("a");
 				artLink.className = "project-art";
@@ -1960,7 +1987,7 @@
 					return response.json();
 				})
 				.then((repositories) => {
-					const projects = repositories.filter((repository) => !repository.fork).slice(0, 6);
+					const projects = repositories.filter((repository) => !repository.fork);
 					projectList.setAttribute("aria-busy", "false");
 					if (projects.length === 0) {
 						showProjectState("No public projects to show just yet. This shelf is ready when you are.", "Visit GitHub", githubProfile);
