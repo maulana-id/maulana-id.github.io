@@ -861,6 +861,10 @@
 				display: contents;
 			}
 
+			.project-signal {
+				display: none;
+			}
+
 			.deck-counter {
 				display: none;
 			}
@@ -923,10 +927,22 @@
 				}
 
 				#projects.deck-panel {
+					position: relative;
+					isolation: isolate;
 					display: flex;
 					flex-direction: column;
 					justify-content: center;
 					padding-block: clamp(28px, 4vh, 54px);
+				}
+
+				.project-signal {
+					position: absolute;
+					z-index: -1;
+					inset: 0;
+					display: block;
+					width: 100%;
+					height: 100%;
+					pointer-events: none;
 				}
 
 				#projects .section-heading {
@@ -1570,6 +1586,7 @@
 				<div class="presentation-stage">
 					<div class="presentation-track" id="presentation-track">
 						<section class="shell section deck-panel" id="projects" data-panel="0" aria-labelledby="projects-title">
+							<canvas class="project-signal" id="project-signal" aria-hidden="true"></canvas>
 							<div class="section-heading">
 								<div>
 									<span class="section-index">01 / THE WORK</span>
@@ -1674,6 +1691,7 @@
 					if (isActive) link?.setAttribute("aria-current", "location");
 					else link?.removeAttribute("aria-current");
 				});
+				updateSignalLoop();
 			}
 
 			function requestDeckUpdate() {
@@ -1699,6 +1717,153 @@
 				});
 
 			requestDeckUpdate();
+
+			const projectPanel = document.querySelector("#projects");
+			const signalCanvas = document.querySelector("#project-signal");
+			const signalContext = signalCanvas.getContext("2d");
+			const signalPointer = { x: 0.5, y: 0.5, targetX: 0.5, targetY: 0.5, active: false };
+			let signalFrame = 0;
+			let signalWidth = 0;
+			let signalHeight = 0;
+			let signalNodes = [];
+
+			function resizeSignal() {
+				const bounds = signalCanvas.getBoundingClientRect();
+				const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+				signalWidth = bounds.width;
+				signalHeight = bounds.height;
+				signalCanvas.width = Math.round(signalWidth * pixelRatio);
+				signalCanvas.height = Math.round(signalHeight * pixelRatio);
+				signalContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+				signalNodes = Array.from({ length: 63 }, (_, index) => ({
+					column: index % 9,
+					row: Math.floor(index / 9),
+					phase: Math.sin(index * 17.31) * Math.PI,
+				}));
+			}
+
+			function drawSignal(time) {
+				if (!signalWidth || !signalHeight) return;
+				const context = signalContext;
+				const pointerX = signalPointer.x * signalWidth;
+				const pointerY = signalPointer.y * signalHeight;
+				const drift = time * 0.00024;
+				const points = signalNodes.map((node) => {
+					const baseX = ((node.column + 0.5) / 9) * signalWidth;
+					const baseY = ((node.row + 0.5) / 7) * signalHeight;
+					let x = baseX + Math.sin(drift + node.phase) * 11 + (signalPointer.x - 0.5) * 34;
+					let y = baseY + Math.cos(drift * 0.8 + node.phase) * 9 + (signalPointer.y - 0.5) * 28;
+					const distance = Math.hypot(x - pointerX, y - pointerY);
+					const influence = Math.max(0, 1 - distance / 210);
+					const direction = Math.atan2(y - pointerY, x - pointerX);
+					x += Math.cos(direction) * influence * 28;
+					y += Math.sin(direction) * influence * 28;
+					return { x, y, influence };
+				});
+
+				context.clearRect(0, 0, signalWidth, signalHeight);
+				context.lineWidth = 0.75;
+				for (let row = 0; row < 7; row += 1) {
+					for (let column = 0; column < 9; column += 1) {
+						const index = row * 9 + column;
+						const point = points[index];
+						const neighbors = [
+							column < 8 ? index + 1 : -1,
+							row < 6 ? index + 9 : -1,
+							column < 8 && row < 6 ? index + 10 : -1,
+						];
+						for (const neighborIndex of neighbors) {
+							if (neighborIndex < 0) continue;
+							const neighbor = points[neighborIndex];
+							const brightness = Math.max(point.influence, neighbor.influence);
+							const alpha = 0.1 + brightness * 0.52;
+							context.strokeStyle = column % 2
+								? `rgba(194, 164, 109, ${alpha})`
+								: `rgba(223, 97, 36, ${alpha})`;
+							context.beginPath();
+							context.moveTo(point.x, point.y);
+							context.lineTo(neighbor.x, neighbor.y);
+							context.stroke();
+						}
+					}
+				}
+
+				for (const point of points) {
+					context.save();
+					context.translate(point.x, point.y);
+					context.rotate(Math.PI / 4);
+					context.fillStyle = `rgba(240, 238, 231, ${0.22 + point.influence * 0.72})`;
+					context.fillRect(-1.5, -1.5, 3, 3);
+					context.restore();
+				}
+
+				if (signalPointer.active) {
+					const x = pointerX;
+					const y = pointerY;
+					const rotation = time * 0.00012;
+					context.save();
+					context.translate(x, y);
+					context.rotate(rotation);
+					context.strokeStyle = "rgba(223, 97, 36, 0.9)";
+					context.lineWidth = 1;
+					context.setLineDash([5, 9]);
+					context.beginPath();
+					context.arc(0, 0, 35, 0, Math.PI * 2);
+					context.stroke();
+					context.setLineDash([]);
+					context.strokeStyle = "rgba(194, 164, 109, 0.85)";
+					context.beginPath();
+					context.moveTo(-12, 0);
+					context.lineTo(12, 0);
+					context.moveTo(0, -12);
+					context.lineTo(0, 12);
+					context.stroke();
+					context.restore();
+					context.fillStyle = "rgba(240, 238, 231, 0.7)";
+					context.font = "10px 'IBM Plex Mono', monospace";
+					context.fillText(`${signalPointer.x.toFixed(2)} / ${signalPointer.y.toFixed(2)}`, x + 24, y - 25);
+				}
+			}
+
+			function animateSignal(time) {
+				signalFrame = 0;
+				if (!desktopDeck.matches || document.hidden || !panels[0].classList.contains("is-active")) return;
+				signalPointer.x += (signalPointer.targetX - signalPointer.x) * 0.09;
+				signalPointer.y += (signalPointer.targetY - signalPointer.y) * 0.09;
+				drawSignal(time);
+				signalFrame = window.requestAnimationFrame(animateSignal);
+			}
+
+			function updateSignalLoop() {
+				const shouldAnimate = desktopDeck.matches && !document.hidden && panels[0].classList.contains("is-active");
+				if (!shouldAnimate) {
+					if (signalFrame) window.cancelAnimationFrame(signalFrame);
+					signalFrame = 0;
+					return;
+				}
+				if (!signalWidth) resizeSignal();
+				if (!signalFrame) signalFrame = window.requestAnimationFrame(animateSignal);
+			}
+
+			projectPanel.addEventListener("pointermove", (event) => {
+				const bounds = projectPanel.getBoundingClientRect();
+				signalPointer.targetX = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
+				signalPointer.targetY = Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height));
+				signalPointer.active = true;
+				updateSignalLoop();
+			});
+
+			projectPanel.addEventListener("pointerleave", () => {
+				signalPointer.active = false;
+			});
+
+			window.addEventListener("resize", () => {
+				resizeSignal();
+				updateSignalLoop();
+			});
+			document.addEventListener("visibilitychange", updateSignalLoop);
+			resizeSignal();
+			updateSignalLoop();
 
 			function makeProjectCard(repository, index) {
 				const card = document.createElement("article");
