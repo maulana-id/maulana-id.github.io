@@ -51,6 +51,7 @@
 			body {
 				min-width: 320px;
 				margin: 0;
+				isolation: isolate;
 				background-color: var(--bg);
 				background-image: radial-gradient(ellipse at 12% 4%, #24283b 0, transparent 37%),
 					repeating-linear-gradient(0deg, transparent 0, transparent 55px, #ffffff05 56px);
@@ -862,7 +863,13 @@
 			}
 
 			.project-signal {
-				display: none;
+				position: fixed;
+				z-index: 0;
+				inset: 0;
+				display: block;
+				width: 100%;
+				height: 100%;
+				pointer-events: none;
 			}
 
 			.deck-counter {
@@ -904,16 +911,6 @@
 					height: calc(100svh - var(--header-height));
 					isolation: isolate;
 					overflow: hidden;
-				}
-
-				.presentation-stage > .project-signal {
-					position: absolute;
-					z-index: 0;
-					inset: 0;
-					display: block;
-					width: 100%;
-					height: 100%;
-					pointer-events: none;
 				}
 
 				.presentation-track {
@@ -1045,6 +1042,58 @@
 
 				.deck-panel.is-active[data-panel="2"] > :first-child {
 					animation-name: deck-enter-up;
+				}
+			}
+
+			header,
+			main,
+			footer {
+				position: relative;
+				z-index: 1;
+			}
+
+			.hero-art {
+				padding: 0;
+				color: inherit;
+				font: inherit;
+				text-align: left;
+				cursor: crosshair;
+				transform: perspective(900px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
+				transition: transform 180ms ease-out, border-color 180ms ease;
+			}
+
+			.hero-art:hover,
+			.hero-art:focus-visible {
+				border-color: var(--gold);
+			}
+
+			.hero-art .art-core {
+				transform: translate(calc(-50% + var(--core-x, 0px)), calc(-50% + var(--core-y, 0px)));
+				transition: transform 220ms ease-out, box-shadow 220ms ease-out;
+			}
+
+			.hero-art.is-pulsing .art-core {
+				animation: hero-core-pulse 720ms cubic-bezier(0.2, 0.7, 0.3, 1);
+			}
+
+			.hero-art.is-pulsing::before {
+				animation: hero-field-pulse 820ms cubic-bezier(0.15, 0.65, 0.3, 1);
+			}
+
+			@keyframes hero-core-pulse {
+				45% {
+					box-shadow: 0 0 90px #df612466, inset 0 0 48px #df612433;
+				}
+			}
+
+			@keyframes hero-field-pulse {
+				0% {
+					transform: scale(0.82);
+					opacity: 0.9;
+				}
+				100% {
+					transform: scale(1.12);
+					opacity: 0;
 				}
 			}
 
@@ -1550,6 +1599,7 @@
 		</style>
 	</head>
 	<body>
+			<canvas class="project-signal" id="project-signal" aria-hidden="true"></canvas>
 		<header class="site-header">
 			<div class="shell header-inner">
 				<a class="wordmark" href="#top" aria-label="Maulana home">
@@ -1586,13 +1636,13 @@
 					</div>
 				</div>
 
-				<div class="hero-art reveal delay" aria-label="A graphic mark for Maulana's personal project archive" role="img">
+				<button class="hero-art reveal delay" type="button" aria-label="Animate the project field">
 					<span class="art-label top mono">FIELD NOTES / 001</span>
 					<span class="art-label bottom mono">IDEAS INTO THINGS</span>
 					<span class="art-crosshair one" aria-hidden="true"></span>
 					<span class="art-crosshair two" aria-hidden="true"></span>
-					<div class="art-core" aria-hidden="true"><span>m</span></div>
-				</div>
+					<span class="art-core" aria-hidden="true"><span>m</span></span>
+				</button>
 			</section>
 
 			<div class="ticker" aria-label="Topics in this archive">
@@ -1608,7 +1658,6 @@
 
 			<div class="presentation" id="presentation">
 				<div class="presentation-stage">
-					<canvas class="project-signal" id="project-signal" aria-hidden="true"></canvas>
 					<div class="presentation-track" id="presentation-track">
 						<section class="shell section deck-panel" id="projects" data-panel="0" aria-labelledby="projects-title">
 							<div class="section-heading">
@@ -1642,11 +1691,11 @@
 									<p>Software Developer</p>
 									<span class="experience-company">PT DTECH INOVASI INDONESIA</span>
 									<div class="experience-areas" aria-label="Areas of experience">
-										<span class="experience-area">LinuxCNC &amp; GRBL</span>
+										<span class="experience-area">Computer Numerical Control Programming</span>
 										<span class="experience-area">Embedded software</span>
 										<span class="experience-area">Custom control UIs</span>
 										<span class="experience-area">Backend &amp; frontend</span>
-										<span class="experience-area">Android</span>
+										<span class="experience-area">Android &amp; ARM embedded systems</span>
 										<span class="experience-area">Qt</span>
 									</div>
 								</div>
@@ -1684,6 +1733,7 @@
 			const panels = [...document.querySelectorAll(".deck-panel")];
 			const deckCurrent = document.querySelector("#deck-current");
 			const desktopDeck = window.matchMedia("(min-width: 900px) and (prefers-reduced-motion: no-preference)");
+			const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 			let deckFrame = 0;
 			let deckInRange = false;
 
@@ -1748,7 +1798,7 @@
 			const signalCanvas = document.querySelector("#project-signal");
 			const signalStage = document.querySelector(".presentation-stage");
 			const signalContext = signalCanvas.getContext("2d");
-			const signalPointer = { x: 0.5, y: 0.5, targetX: 0.5, targetY: 0.5, active: false };
+			const signalPointer = { x: 0.5, y: 0.5, targetX: 0.5, targetY: 0.5, active: false, pulseAt: -Infinity };
 			let signalFrame = 0;
 			let signalWidth = 0;
 			let signalHeight = 0;
@@ -1846,6 +1896,14 @@
 					context.lineTo(0, 12);
 					context.stroke();
 					context.restore();
+					const pulseProgress = (time - signalPointer.pulseAt) / 760;
+					if (pulseProgress >= 0 && pulseProgress < 1) {
+						context.strokeStyle = `rgba(125, 207, 255, ${0.72 * (1 - pulseProgress)})`;
+						context.lineWidth = 1.2;
+						context.beginPath();
+						context.arc(x, y, 34 + pulseProgress * 120, 0, Math.PI * 2);
+						context.stroke();
+					}
 					context.fillStyle = "rgba(240, 238, 231, 0.7)";
 					context.font = "10px 'IBM Plex Mono', monospace";
 					context.fillText(`${signalPointer.x.toFixed(2)} / ${signalPointer.y.toFixed(2)}`, x + 24, y - 25);
@@ -1854,7 +1912,7 @@
 
 			function animateSignal(time) {
 				signalFrame = 0;
-				if (!desktopDeck.matches || document.hidden || !deckInRange) return;
+				if (reducedMotion.matches || document.hidden) return;
 				signalPointer.x += (signalPointer.targetX - signalPointer.x) * 0.09;
 				signalPointer.y += (signalPointer.targetY - signalPointer.y) * 0.09;
 				drawSignal(time);
@@ -1862,7 +1920,7 @@
 			}
 
 			function updateSignalLoop() {
-				const shouldAnimate = desktopDeck.matches && !document.hidden && deckInRange;
+				const shouldAnimate = !reducedMotion.matches && !document.hidden;
 				if (!shouldAnimate) {
 					if (signalFrame) window.cancelAnimationFrame(signalFrame);
 					signalFrame = 0;
@@ -1889,8 +1947,50 @@
 				updateSignalLoop();
 			});
 			document.addEventListener("visibilitychange", updateSignalLoop);
+				reducedMotion.addEventListener("change", updateSignalLoop);
+				document.addEventListener("pointermove", (event) => {
+					signalPointer.targetX = Math.max(0, Math.min(1, event.clientX / window.innerWidth));
+					signalPointer.targetY = Math.max(0, Math.min(1, event.clientY / window.innerHeight));
+					signalPointer.active = true;
+					updateSignalLoop();
+				}, { passive: true });
+				document.addEventListener("pointerdown", (event) => {
+					signalPointer.targetX = Math.max(0, Math.min(1, event.clientX / window.innerWidth));
+					signalPointer.targetY = Math.max(0, Math.min(1, event.clientY / window.innerHeight));
+					signalPointer.pulseAt = performance.now();
+					signalPointer.active = true;
+					updateSignalLoop();
+				}, { passive: true });
+				window.addEventListener("blur", () => {
+					signalPointer.active = false;
+				});
 			resizeSignal();
 			updateSignalLoop();
+
+			const heroArt = document.querySelector(".hero-art");
+			heroArt.addEventListener("pointermove", (event) => {
+				const bounds = heroArt.getBoundingClientRect();
+				const x = ((event.clientX - bounds.left) / bounds.width - 0.5) * 2;
+				const y = ((event.clientY - bounds.top) / bounds.height - 0.5) * 2;
+				heroArt.style.setProperty("--tilt-x", `${-y * 4}deg`);
+				heroArt.style.setProperty("--tilt-y", `${x * 5}deg`);
+				heroArt.style.setProperty("--core-x", `${x * 9}px`);
+				heroArt.style.setProperty("--core-y", `${y * 9}px`);
+			});
+
+			heroArt.addEventListener("pointerleave", () => {
+				heroArt.style.setProperty("--tilt-x", "0deg");
+				heroArt.style.setProperty("--tilt-y", "0deg");
+				heroArt.style.setProperty("--core-x", "0px");
+				heroArt.style.setProperty("--core-y", "0px");
+			});
+
+			heroArt.addEventListener("click", () => {
+				heroArt.classList.remove("is-pulsing");
+				void heroArt.offsetWidth;
+				heroArt.classList.add("is-pulsing");
+				window.setTimeout(() => heroArt.classList.remove("is-pulsing"), 850);
+			});
 
 			function makeProjectCard(repository, index) {
 				const card = document.createElement("article");
